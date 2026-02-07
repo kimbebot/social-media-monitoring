@@ -1,0 +1,40 @@
+# Core Automation
+playwright==1.48.0
+# playwright-stealth is not needed - we implement stealth manually
+
+# Async & HTTP
+aiohttp==3.10.11
+httpx==0.27.2
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.14.0
+# Use psycopg instead of psycopg2-binary for better compatibility
+psycopg[binary]==3.2.3
+aiosqlite==0.20.0
+# greenlet for async support (will be installed as sqlalchemy dependency)
+
+# Data Processing
+python-dateutil==2.9.0
+pytz==2024.2
+
+# Utilities
+python-dotenv==1.0.1
+# Use newer pydantic with better Python 3.13 support
+pydantic==2.10.3
+pydantic-settings==2.7.0
+
+# Security
+cryptography==44.0.0
+
+# Scheduling
+apscheduler==3.10.4
+
+# Logging
+loguru==0.7.3
+
+# Proxies (optional)
+# aiohttp-socks==0.9.0
+
+# Fake data generation
+faker==33.1.0
