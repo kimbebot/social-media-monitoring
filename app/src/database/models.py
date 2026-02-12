@@ -23,6 +23,7 @@ class Platform(Base):
     # Relationships
     accounts = relationship("Account", back_populates="platform", cascade="all, delete-orphan")
     posts = relationship("Post", back_populates="platform", cascade="all, delete-orphan")
+    monitored_urls = relationship("MonitoredUrl", back_populates="platform", cascade="all, delete-orphan")
 
 
 class Account(Base):
@@ -99,6 +100,28 @@ class Post(Base):
         Index('idx_platform_external_id', 'platform_id', 'external_id', unique=True),
         Index('idx_posted_at', 'posted_at'),
         Index('idx_scraped_at', 'scraped_at'),
+    )
+
+
+class MonitoredUrl(Base):
+    """URLs to monitor for new posts"""
+    __tablename__ = 'monitored_urls'
+
+    id = Column(Integer, primary_key=True)
+    platform_id = Column(Integer, ForeignKey('platforms.id'), nullable=False)
+    url = Column(Text, nullable=False)
+    label = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True)
+    last_checked_at = Column(DateTime, nullable=True)
+    last_exported_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    platform = relationship("Platform", back_populates="monitored_urls")
+
+    __table_args__ = (
+        Index('idx_monitored_platform_url', 'platform_id', 'url', unique=True),
+        Index('idx_monitored_active', 'is_active'),
     )
 
 

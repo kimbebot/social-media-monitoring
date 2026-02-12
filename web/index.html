@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Social Monitor</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <h1>Social Monitor</h1>
+        <button id="runScrapeBtn">Run Scrape</button>
+      </header>
+
+      <section class="panel">
+        <h2>Monitored URLs</h2>
+        <form id="addForm">
+          <label>
+            Platform
+            <select id="platformSelect"></select>
+          </label>
+          <label>
+            URL
+            <input id="urlInput" type="url" placeholder="https://..." required />
+          </label>
+          <label>
+            Label
+            <input id="labelInput" type="text" placeholder="Optional" />
+          </label>
+          <label class="checkbox">
+            <input id="activeInput" type="checkbox" checked />
+            Active
+          </label>
+          <button type="submit">Add URL</button>
+        </form>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Platform</th>
+              <th>URL</th>
+              <th>Label</th>
+              <th>Active</th>
+              <th>Last Checked</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="urlTableBody"></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2>Accounts</h2>
+        <form id="accountForm">
+          <label>
+            Platform
+            <select id="accountPlatformSelect"></select>
+          </label>
+          <label>
+            Username
+            <input id="accountUsername" type="text" required />
+          </label>
+          <label>
+            Email
+            <input id="accountEmail" type="email" />
+          </label>
+          <label>
+            Password
+            <input id="accountPassword" type="password" required />
+          </label>
+          <label class="checkbox">
+            <input id="accountActive" type="checkbox" checked />
+            Active
+          </label>
+          <button type="submit">Add Account</button>
+        </form>
+        <div class="note">
+          Passwords are encrypted before saving. Use an app-specific password when possible.
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Progress</h2>
+        <div class="download-row">
+          <label>
+            Platform
+            <select id="downloadPlatformSelect"></select>
+          </label>
+          <button id="downloadBtn" class="secondary">Download New Posts (Excel)</button>
+        </div>
+        <div id="progressContainer"></div>
+        <div id="statusLog"></div>
+      </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

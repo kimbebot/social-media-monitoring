@@ -8,7 +8,7 @@ from typing import Dict, List
 
 from loguru import logger
 
-from src.utils.stealth import HumanBehavior
+from app.src.utils.stealth import HumanBehavior
 
 from .base_scraper import BaseScraper
 

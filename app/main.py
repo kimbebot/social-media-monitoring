@@ -6,10 +6,10 @@ import sys
 from loguru import logger
 from datetime import datetime
 
-from src.database.db_manager import db
-from src.scrapers.linkedin_scraper import LinkedInScraper
-from src.utils.encryption import encryption
-from config.settings import settings
+from app.src.database.db_manager import db
+from app.src.scrapers.linkedin_scraper import LinkedInScraper
+from app.src.utils.encryption import encryption
+from app.config.settings import settings
 
 
 # Configure logging

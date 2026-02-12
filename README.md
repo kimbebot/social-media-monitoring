@@ -75,6 +75,21 @@ FACEBOOK_ENABLED=false
 TWITTER_ENABLED=false
 ```
 
+### 2.5. Database migrations (Alembic)
+
+This project uses Alembic for schema management. Initialize the database with:
+
+```bash
+alembic upgrade head
+```
+
+If you update models, generate a new migration:
+
+```bash
+alembic revision --autogenerate -m "describe change"
+alembic upgrade head
+```
+
 ### 3. Add Your Accounts
 
 ```python

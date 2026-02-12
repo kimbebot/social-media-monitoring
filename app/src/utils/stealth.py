@@ -221,8 +221,12 @@ class SessionManager:
 
         # Save to file
         import json
+        from pathlib import Path
+        from app.config.settings import settings
 
-        session_file = f"./browser_profiles/{platform}_{account_id}_session.json"
+        session_dir = Path(settings.user_data_dir)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        session_file = session_dir / f"{platform}_{account_id}_session.json"
         with open(session_file, "w") as f:
             json.dump(storage, f)
 
@@ -232,10 +236,12 @@ class SessionManager:
     ) -> bool:
         """Load saved session"""
         import json
-        import os
+        from pathlib import Path
+        from app.config.settings import settings
 
-        session_file = f"./browser_profiles/{platform}_{account_id}_session.json"
-        if not os.path.exists(session_file):
+        session_dir = Path(settings.user_data_dir)
+        session_file = session_dir / f"{platform}_{account_id}_session.json"
+        if not session_file.exists():
             return False
 
         try:
@@ -244,6 +250,25 @@ class SessionManager:
 
             # Apply cookies
             await context.add_cookies(storage_state.get("cookies", []))
+            # Restore localStorage per origin
+            origins = storage_state.get("origins", [])
+            if origins:
+                script_payload = {
+                    origin.get("origin"): origin.get("localStorage", [])
+                    for origin in origins
+                }
+                await context.add_init_script(
+                    f"""
+                    (() => {{
+                      const data = {json.dumps(script_payload)};
+                      const items = data[location.origin];
+                      if (!items) return;
+                      for (const entry of items) {{
+                        try {{ localStorage.setItem(entry.name, entry.value); }} catch (e) {{}}
+                      }}
+                    }})();
+                    """
+                )
             return True
         except Exception:
             return False

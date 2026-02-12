@@ -2,7 +2,7 @@
 Encryption utilities for securing credentials
 """
 from cryptography.fernet import Fernet
-from config.settings import settings
+from app.config.settings import settings
 import base64
 import os
 

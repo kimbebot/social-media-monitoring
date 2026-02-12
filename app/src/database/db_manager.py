@@ -7,8 +7,8 @@ from contextlib import asynccontextmanager
 from typing import Optional, List
 from datetime import datetime
 
-from .models import Base, Platform, Account, Post, Media, ScraperLog
-from config.settings import settings
+from .models import Base, Platform, Account, Post, Media, ScraperLog, MonitoredUrl
+from app.config.settings import settings
 
 
 class DatabaseManager:
@@ -27,9 +27,11 @@ class DatabaseManager:
         )
     
     async def init_db(self):
-        """Initialize database tables"""
+        """Initialize database connection (tables are managed by Alembic)."""
+        from sqlalchemy import text
+
         async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text("SELECT 1"))
     
     @asynccontextmanager
     async def get_session(self):
@@ -58,6 +60,19 @@ class DatabaseManager:
                 await session.refresh(platform)
             
             return platform
+
+    async def ensure_default_platforms(self) -> List[Platform]:
+        """Seed default platforms if missing."""
+        defaults = [
+            ("linkedin", "https://www.linkedin.com"),
+            ("facebook", "https://www.facebook.com"),
+            ("twitter", "https://x.com"),
+        ]
+        platforms = []
+        for name, base_url in defaults:
+            platform = await self.get_or_create_platform(name=name, base_url=base_url)
+            platforms.append(platform)
+        return platforms
     
     async def get_active_platforms(self) -> List[Platform]:
         """Get all active platforms"""
@@ -66,6 +81,14 @@ class DatabaseManager:
                 select(Platform).where(Platform.is_active == True)
             )
             return result.scalars().all()
+
+    async def get_platform_by_id(self, platform_id: int) -> Optional[Platform]:
+        """Get platform by ID"""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(Platform).where(Platform.id == platform_id)
+            )
+            return result.scalar_one_or_none()
     
     # Account operations
     async def create_account(self, platform_id: int, username: str, 
@@ -95,6 +118,19 @@ class DatabaseManager:
                 )
             )
             return result.scalar_one_or_none()
+
+    async def get_first_active_account(self, platform_id: int) -> Optional[Account]:
+        """Get first active account for a platform"""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(Account).where(
+                    and_(
+                        Account.platform_id == platform_id,
+                        Account.is_active == True
+                    )
+                ).limit(1)
+            )
+            return result.scalar_one_or_none()
     
     async def update_account_session(self, account_id: int, 
                                     cookies_data: dict, user_agent: str):
@@ -111,6 +147,19 @@ class DatabaseManager:
                 account.session_valid = True
                 account.last_login_at = datetime.utcnow()
                 await session.commit()
+
+    async def set_account_active(self, account_id: int, is_active: bool) -> bool:
+        """Activate/deactivate an account"""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(Account).where(Account.id == account_id)
+            )
+            account = result.scalar_one_or_none()
+            if not account:
+                return False
+            account.is_active = is_active
+            await session.commit()
+            return True
     
     # Post operations
     async def create_post(self, post_data: dict) -> Optional[Post]:
@@ -168,6 +217,85 @@ class DatabaseManager:
             
             await session.commit()
         return new_count
+
+    # Monitored URL operations
+    async def create_monitored_url(
+        self,
+        platform_id: int,
+        url: str,
+        label: Optional[str] = None,
+        is_active: bool = True
+    ) -> MonitoredUrl:
+        """Create a monitored URL"""
+        async with self.get_session() as session:
+            monitored = MonitoredUrl(
+                platform_id=platform_id,
+                url=url,
+                label=label,
+                is_active=is_active
+            )
+            session.add(monitored)
+            await session.commit()
+            await session.refresh(monitored)
+            return monitored
+
+    async def list_monitored_urls(self) -> List[MonitoredUrl]:
+        """List all monitored URLs"""
+        async with self.get_session() as session:
+            result = await session.execute(select(MonitoredUrl))
+            return result.scalars().all()
+
+    async def get_active_monitored_urls(self) -> List[MonitoredUrl]:
+        """List active monitored URLs"""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(MonitoredUrl).where(MonitoredUrl.is_active == True)
+            )
+            return result.scalars().all()
+
+    async def update_monitored_url(self, monitored_id: int, data: dict) -> Optional[MonitoredUrl]:
+        """Update monitored URL"""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(MonitoredUrl).where(MonitoredUrl.id == monitored_id)
+            )
+            monitored = result.scalar_one_or_none()
+            if not monitored:
+                return None
+            for key, value in data.items():
+                setattr(monitored, key, value)
+            await session.commit()
+            await session.refresh(monitored)
+            return monitored
+
+    async def get_new_posts_for_url(
+        self, platform_id: int, url: str, since: Optional[datetime]
+    ) -> List[Post]:
+        """Get posts for a URL newer than a timestamp."""
+        async with self.get_session() as session:
+            query = select(Post).where(
+                and_(
+                    Post.platform_id == platform_id,
+                    Post.author_url == url,
+                )
+            )
+            if since:
+                query = query.where(Post.scraped_at > since)
+            result = await session.execute(query.order_by(Post.scraped_at.asc()))
+            return result.scalars().all()
+
+    async def delete_monitored_url(self, monitored_id: int) -> bool:
+        """Delete monitored URL"""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(MonitoredUrl).where(MonitoredUrl.id == monitored_id)
+            )
+            monitored = result.scalar_one_or_none()
+            if not monitored:
+                return False
+            await session.delete(monitored)
+            await session.commit()
+            return True
     
     # Media operations
     async def create_media(self, post_id: int, media_data: List[dict]):

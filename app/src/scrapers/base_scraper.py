@@ -8,11 +8,11 @@ from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from datetime import datetime
 import asyncio
 
-from src.utils.stealth import HumanBehavior, StealthBrowser, SessionManager
-from src.utils.encryption import encryption
-from src.database.db_manager import db
-from src.database.models import Account, Platform
-from config.settings import settings
+from app.src.utils.stealth import HumanBehavior, StealthBrowser, SessionManager
+from app.src.utils.encryption import encryption
+from app.src.database.db_manager import db
+from app.src.database.models import Account, Platform
+from app.config.settings import settings
 from loguru import logger
 
 
@@ -118,6 +118,9 @@ class BaseScraper(ABC):
             logger.info("Loaded existing session")
             # Verify session is still valid
             if await self.verify_session():
+                # Some platforms prompt for account selection after session restore
+                if await self._maybe_handle_account_selection():
+                    logger.info("Account selection handled after session restore")
                 logger.success("Session is valid, skipping login")
                 return True
         
@@ -147,6 +150,13 @@ class BaseScraper(ABC):
             logger.error("Login failed")
         
         return success
+
+    async def _maybe_handle_account_selection(self) -> bool:
+        """
+        Hook for platform-specific account selection after session restore.
+        Default no-op; override in platform scrapers as needed.
+        """
+        return False
     
     @abstractmethod
     async def perform_login(self, username: str, password: str) -> bool:

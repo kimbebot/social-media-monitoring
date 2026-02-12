@@ -10,7 +10,7 @@ import sys
 from datetime import datetime
 
 from loguru import logger
-from src.scrapers.linkedin_company_scraper import LinkedInCompanyScraper
+from app.src.scrapers.linkedin_company_scraper import LinkedInCompanyScraper
 
 
 async def scrape_company(
@@ -62,6 +62,8 @@ async def scrape_company(
 
         if posts:
             logger.success(f"✓ Successfully scraped {len(posts)} posts")
+            saved_count = await scraper.save_company_posts(posts)
+            logger.success(f"✓ Saved {saved_count} posts to database")
 
             # Print summary
             print("\n" + "=" * 80)
@@ -156,6 +158,8 @@ async def scrape_multiple_companies(
             all_posts.extend(posts)
 
         logger.success(f"✓ Total posts scraped: {len(all_posts)}")
+        saved_count = await scraper.save_company_posts(all_posts)
+        logger.success(f"✓ Saved {saved_count} posts to database")
 
         # Save to file
         if output_file:
@@ -198,26 +202,34 @@ def print_help():
 LinkedIn Company Posts Scraper
 
 Usage:
-    python company_scraper.py [command] [options]
+    python app/company_scraper.py [command] [options]
 
 Commands:
-    scrape <company_url> <email> <password> [--limit=10] [--headless] [--output=file.json]
+    scrape <company_url> <email> <password> [--limit=10|--all] [--headless] [--output=file.json]
         Scrape posts from a single company page
         
-    scrape-multiple <urls_file> <email> <password> [--limit=10] [--headless] [--output=file.json]
+    scrape-multiple <urls_file> <email> <password> [--limit=10|--all] [--headless] [--output=file.json]
         Scrape posts from multiple companies (one URL per line in file)
 
 Examples:
     # Scrape IBM posts (visible browser for first time)
-    python company_scraper.py scrape \\
+    python app/company_scraper.py scrape \\
         "https://www.linkedin.com/company/ibm/posts/?feedView=all" \\
         your@email.com \\
         yourpassword \\
         --limit=20 \\
         --no-headless
+
+    # Scrape all available posts
+    python app/company_scraper.py scrape \\
+        "https://www.linkedin.com/company/ibm/posts/?feedView=all" \\
+        your@email.com \\
+        yourpassword \\
+        --all \\
+        --no-headless
     
     # Scrape multiple companies from file
-    python company_scraper.py scrape-multiple \\
+    python app/company_scraper.py scrape-multiple \\
         companies.txt \\
         your@email.com \\
         yourpassword \\
@@ -248,7 +260,7 @@ async def main():
             if len(sys.argv) < 5:
                 print("Error: Missing arguments")
                 print(
-                    "Usage: python company_scraper.py scrape <company_url> <email> <password> [options]"
+                    "Usage: python app/company_scraper.py scrape <company_url> <email> <password> [options]"
                 )
                 return
 
@@ -264,6 +276,8 @@ async def main():
             for arg in sys.argv[5:]:
                 if arg.startswith("--limit="):
                     limit = int(arg.split("=")[1])
+                elif arg == "--all":
+                    limit = 0
                 elif arg == "--no-headless":
                     headless = False
                 elif arg == "--headless":
@@ -279,7 +293,7 @@ async def main():
             if len(sys.argv) < 5:
                 print("Error: Missing arguments")
                 print(
-                    "Usage: python company_scraper.py scrape-multiple <urls_file> <email> <password> [options]"
+                    "Usage: python app/company_scraper.py scrape-multiple <urls_file> <email> <password> [options]"
                 )
                 return
 
@@ -305,6 +319,8 @@ async def main():
             for arg in sys.argv[5:]:
                 if arg.startswith("--limit="):
                     limit = int(arg.split("=")[1])
+                elif arg == "--all":
+                    limit = 0
                 elif arg == "--no-headless":
                     headless = False
                 elif arg == "--headless":

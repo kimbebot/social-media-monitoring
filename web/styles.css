@@ -1,0 +1,169 @@
+:root {
+  --bg: #f4f1ec;
+  --text: #1c1c1c;
+  --muted: #6f6b66;
+  --accent: #1b7a6b;
+  --panel: #ffffff;
+  --border: #e0dbd5;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: "Space Grotesk", "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at top, #fdf9f2, var(--bg));
+  color: var(--text);
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+h1 {
+  font-size: 28px;
+  margin: 0;
+}
+
+button {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+.secondary {
+  background: #2b2b2b;
+  margin-bottom: 12px;
+}
+
+.download-row {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 6px 18px rgba(20, 20, 20, 0.05);
+}
+
+form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+input,
+select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+}
+
+.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  border-top: 1px solid var(--border);
+  padding: 10px 8px;
+  text-align: left;
+}
+
+.url-cell {
+  max-width: 320px;
+  word-break: break-all;
+}
+
+.progress-block {
+  margin-bottom: 12px;
+}
+
+.progress-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.progress-bar {
+  height: 12px;
+  background: #ece7e1;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #1b7a6b, #44a08d);
+  transition: width 0.2s ease;
+}
+
+.progress-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+#statusLog {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.status-line {
+  padding: 4px 0;
+}
+
+@media (max-width: 900px) {
+  form {
+    grid-template-columns: 1fr 1fr;
+  }
+}

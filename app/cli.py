@@ -11,8 +11,8 @@ from loguru import logger
 from sqlalchemy import func, select
 
 from main import SocialMediaMonitor, add_account
-from src.database.db_manager import db
-from src.database.models import Account, Platform, Post
+from app.src.database.db_manager import db
+from app.src.database.models import Account, Platform, Post
 
 
 async def list_accounts():

@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 
 from loguru import logger
 
-from src.utils.stealth import HumanBehavior
+from app.src.utils.stealth import HumanBehavior
 
 from .base_scraper import BaseScraper
 
@@ -279,12 +279,30 @@ class LinkedInCompanyScraper(BaseScraper):
             company_name = await self._extract_company_name()
             logger.info(f"✓ Company: {company_name}")
 
-            # Scroll to load posts
+            target_limit = None if limit <= 0 else limit
+            max_scrolls = 30
+            stable_rounds = 0
+            last_count = 0
+
             logger.info("Scrolling to load posts...")
-            for scroll in range(5):  # Scroll 5 times to load more posts
-                logger.debug(f"Scroll {scroll + 1}/5")
+            for scroll in range(max_scrolls):
+                logger.debug(f"Scroll {scroll + 1}/{max_scrolls}")
                 await HumanBehavior.human_scroll(self.page, scrolls=2)
                 await HumanBehavior.random_delay(2, 4)
+
+                post_elements = await self._find_post_elements()
+                current_count = await self._count_unique_posts(post_elements)
+
+                if current_count > last_count:
+                    last_count = current_count
+                    stable_rounds = 0
+                else:
+                    stable_rounds += 1
+
+                if target_limit and current_count >= target_limit:
+                    break
+                if stable_rounds >= 3:
+                    break
 
             logger.info("✓ Scrolling complete")
 
@@ -344,29 +362,44 @@ class LinkedInCompanyScraper(BaseScraper):
                 logger.error("  5. Check the debug HTML file for details")
                 return []
 
-            logger.info(f"Processing up to {min(limit, len(post_elements))} posts...")
+            if target_limit:
+                logger.info(
+                    f"Processing up to {min(target_limit, len(post_elements))} posts..."
+                )
+            else:
+                logger.info(f"Processing {len(post_elements)} posts...")
 
             # Extract data from posts
-            for idx, post_element in enumerate(post_elements[:limit]):
+            seen_ids = set()
+            processed = 0
+            for post_element in post_elements:
                 try:
-                    logger.debug(f"Extracting post {idx + 1}...")
+                    if target_limit and processed >= target_limit:
+                        break
+                    logger.debug(f"Extracting post {processed + 1}...")
+                    post_id = await self._extract_post_id_quick(post_element)
+                    if post_id and post_id in seen_ids:
+                        continue
+                    if post_id:
+                        seen_ids.add(post_id)
                     post_data = await self._extract_company_post_data(
                         post_element, company_name, company_url
                     )
                     if post_data:
                         posts.append(post_data)
+                        processed += 1
                         logger.success(
-                            f"✓ Extracted post {idx + 1}/{min(limit, len(post_elements))}: {post_data['content'][:50]}..."
+                            f"✓ Extracted post {processed}/{target_limit or len(post_elements)}: {post_data['content'][:50]}..."
                         )
                     else:
-                        logger.warning(f"⚠️  Post {idx + 1} returned no data")
+                        logger.warning("⚠️  Post returned no data")
 
                     # Random micro-pause
                     if idx % 3 == 0:
                         await HumanBehavior.micro_sleep()
 
                 except Exception as e:
-                    logger.warning(f"❌ Error extracting post {idx + 1}: {str(e)}")
+                    logger.warning(f"❌ Error extracting post: {str(e)}")
                     continue
 
             if posts:
@@ -425,6 +458,14 @@ class LinkedInCompanyScraper(BaseScraper):
             post_urn = await post_element.get_attribute("data-urn")
             if not post_urn:
                 post_urn = await post_element.get_attribute("data-id")
+            if not post_urn:
+                nested = await post_element.query_selector(
+                    'div[data-urn*="urn:li:activity"], div[data-id*="urn:li:activity"]'
+                )
+                if nested:
+                    post_urn = await nested.get_attribute("data-urn")
+                    if not post_urn:
+                        post_urn = await nested.get_attribute("data-id")
 
             if not post_urn:
                 # Try to get from link
@@ -435,8 +476,22 @@ class LinkedInCompanyScraper(BaseScraper):
                         post_urn = href.split("/")[-1].split("?")[0]
 
             if not post_urn:
-                logger.debug("No post URN found, skipping")
-                return None
+                # Fallback: generate a stable-ish ID from content/time if possible
+                content_preview = ""
+                try:
+                    content_preview = (await post_element.inner_text())[:200]
+                except Exception:
+                    pass
+                posted_at_text = None
+                try:
+                    time_element = await post_element.query_selector("time")
+                    if time_element:
+                        posted_at_text = await time_element.inner_text()
+                except Exception:
+                    pass
+                post_urn = self._generate_fallback_post_id(
+                    company_url, content_preview, posted_at_text
+                )
 
             # Post content/text
             content_selectors = [
@@ -623,7 +678,9 @@ class LinkedInCompanyScraper(BaseScraper):
     def _is_post_url(self, url: str) -> bool:
         """Detect if the URL points to a single post"""
         url = (url or "").lower()
-        return "/feed/update/" in url or "/posts/" in url or "urn:li:activity" in url
+        if "/company/" in url and "/posts/" in url:
+            return False
+        return "/feed/update/" in url or "urn:li:activity" in url or "/posts/urn:li:activity" in url
 
     async def _find_post_elements(self) -> List:
         """Find post elements on the page using multiple selectors"""
@@ -633,6 +690,8 @@ class LinkedInCompanyScraper(BaseScraper):
             'div[data-id*="urn:li:activity"]',
             'li[class*="profile-creator-shared-feed-update"]',
             'div[class*="occludable-update"]',
+            'div.scaffold-finite-scroll__content div[data-urn*="urn:li:activity"]',
+            'div.scaffold-finite-scroll__content div[class*="occludable-update"]',
             "article",
             "div[data-urn]",
         ]
@@ -646,6 +705,58 @@ class LinkedInCompanyScraper(BaseScraper):
             logger.debug(f"  No elements found with: {selector}")
 
         return []
+
+    async def _count_unique_posts(self, post_elements: List) -> int:
+        """Count unique posts using quick ID extraction."""
+        seen = set()
+        any_id = False
+        for elem in post_elements:
+            post_id = await self._extract_post_id_quick(elem)
+            if post_id:
+                any_id = True
+                seen.add(post_id)
+        if any_id:
+            return len(seen)
+        return len(post_elements)
+
+    async def _extract_post_id_quick(self, post_element) -> Optional[str]:
+        """Extract post ID quickly for dedupe/scroll checks."""
+        try:
+            post_urn = await post_element.get_attribute("data-urn")
+            if post_urn:
+                return post_urn
+            post_id = await post_element.get_attribute("data-id")
+            if post_id:
+                return post_id
+
+            nested = await post_element.query_selector(
+                'div[data-urn*="urn:li:activity"], div[data-id*="urn:li:activity"]'
+            )
+            if nested:
+                post_urn = await nested.get_attribute("data-urn")
+                if post_urn:
+                    return post_urn
+                post_id = await nested.get_attribute("data-id")
+                if post_id:
+                    return post_id
+
+            link_element = await post_element.query_selector('a[href*="update"]')
+            if link_element:
+                href = await link_element.get_attribute("href")
+                if href and "update" in href:
+                    return href.split("/")[-1].split("?")[0]
+        except Exception:
+            return None
+        return None
+
+    def _generate_fallback_post_id(
+        self, company_url: str, content_preview: str, posted_at_text: Optional[str]
+    ) -> str:
+        """Generate a fallback ID when LinkedIn doesn't expose a post URN."""
+        import hashlib
+
+        base = f"{company_url}|{posted_at_text or ''}|{content_preview}".strip()
+        return f"fallback:{hashlib.md5(base.encode('utf-8')).hexdigest()}"
 
     async def _expand_post_text(self, post_element):
         """Click 'See more' within a post if present"""
@@ -758,6 +869,20 @@ class LinkedInCompanyScraper(BaseScraper):
         except Exception:
             return False
 
+    async def _maybe_handle_account_selection(self) -> bool:
+        """
+        Called from BaseScraper after session verification.
+        If LinkedIn shows account chooser, pick the first account.
+        """
+        try:
+            current_url = (self.page.url or "").lower()
+            if "account" in current_url or "select" in current_url or "uas/login" in current_url:
+                await HumanBehavior.random_delay(2, 3)
+                return await self._handle_account_selection()
+            return False
+        except Exception:
+            return False
+
     async def _navigate_with_session(self, target_url: str) -> bool:
         """
         Navigate to target URL using existing session only.
@@ -851,3 +976,52 @@ class LinkedInCompanyScraper(BaseScraper):
                 results[url] = []
 
         return results
+
+    async def save_company_posts(self, posts: List[Dict]) -> int:
+        """Map company posts to DB schema and save."""
+        if not posts:
+            logger.warning("No company posts to save")
+            return 0
+
+        mapped = []
+        for post in posts:
+            mapped_post = self._map_company_post_to_db(post)
+            if mapped_post:
+                mapped.append(mapped_post)
+
+        if not mapped:
+            logger.warning("No mappable company posts to save")
+            return 0
+
+        return await self.save_posts(mapped)
+
+    def _map_company_post_to_db(self, post: Dict) -> Optional[Dict]:
+        """Map scraper post dict into Post model fields."""
+        try:
+            external_id = post.get("post_id")
+            post_url = post.get("post_url")
+            if not external_id or not post_url:
+                return None
+
+            posted_at = None
+            posted_at_raw = post.get("posted_at")
+            if posted_at_raw:
+                try:
+                    posted_at = datetime.fromisoformat(posted_at_raw)
+                except Exception:
+                    posted_at = None
+
+            return {
+                "external_id": external_id,
+                "post_url": post_url,
+                "author_name": post.get("company_name"),
+                "author_url": post.get("company_url"),
+                "content": post.get("content"),
+                "posted_at": posted_at,
+                "likes_count": post.get("likes_count", 0),
+                "comments_count": post.get("comments_count", 0),
+                "shares_count": post.get("shares_count", 0),
+                "raw_data": post,
+            }
+        except Exception:
+            return None

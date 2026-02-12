@@ -11,11 +11,11 @@ from loguru import logger
 import random
 
 from main import SocialMediaMonitor
-from src.database.db_manager import db
+from app.src.database.db_manager import db
 from sqlalchemy import select
-from src.database.models import Account, Platform
-from src.utils.encryption import encryption
-from config.settings import settings
+from app.src.database.models import Account, Platform
+from app.src.utils.encryption import encryption
+from app.config.settings import settings
 
 
 class ScheduledMonitor:
