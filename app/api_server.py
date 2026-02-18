@@ -20,6 +20,7 @@ from app.config.settings import settings
 from app.src.database.db_manager import db
 from app.src.utils.encryption import encryption
 from app.src.scrapers.linkedin_company_scraper import LinkedInCompanyScraper
+from app.src.scrapers.x_scraper import XScraper
 
 BASE_DIR = Path(__file__).resolve().parent
 REPO_DIR = BASE_DIR.parent
@@ -50,6 +51,15 @@ class AccountCreate(BaseModel):
     is_active: bool = True
 
 
+class AccountUpdate(BaseModel):
+    is_active: Optional[bool] = None
+
+
+class AppSettings(BaseModel):
+    headless: bool
+    enabled_platforms: List[str]
+
+
 class RunScrapeRequest(BaseModel):
     platforms: Optional[List[str]] = Field(default=None)
 
@@ -78,6 +88,26 @@ class ProgressHub:
 
 progress_hub = ProgressHub()
 _current_job: Optional[asyncio.Task] = None
+_enabled_platforms: Optional[List[str]] = None
+
+
+def _update_env_setting(key: str, value: str):
+    env_path = BASE_DIR.parent / ".env"
+    if not env_path.exists():
+        env_path.write_text(f"{key}={value}\n")
+        return
+    lines = env_path.read_text().splitlines()
+    updated = False
+    new_lines = []
+    for line in lines:
+        if line.strip().startswith(f"{key}="):
+            new_lines.append(f"{key}={value}")
+            updated = True
+        else:
+            new_lines.append(line)
+    if not updated:
+        new_lines.append(f"{key}={value}")
+    env_path.write_text("\n".join(new_lines) + "\n")
 
 
 @app.on_event("startup")
@@ -97,6 +127,39 @@ async def list_platforms():
     return [{"id": p.id, "name": p.name} for p in platforms]
 
 
+@app.get("/api/settings")
+async def get_settings():
+    platforms = _enabled_platforms
+    if platforms is None:
+        platforms = [p.name for p in await db.get_active_platforms()]
+    return {"headless": settings.headless, "enabled_platforms": platforms}
+
+
+@app.patch("/api/settings")
+async def update_settings(payload: AppSettings):
+    settings.headless = payload.headless
+    _update_env_setting("HEADLESS", "true" if payload.headless else "false")
+    global _enabled_platforms
+    _enabled_platforms = [p.lower() for p in payload.enabled_platforms]
+    return {"status": "ok", "headless": settings.headless, "enabled_platforms": _enabled_platforms}
+
+
+@app.get("/api/accounts")
+async def list_accounts():
+    accounts = await db.list_accounts()
+    return [
+        {
+            "id": a.id,
+            "platform_id": a.platform_id,
+            "username": a.username,
+            "email": a.email,
+            "is_active": a.is_active,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in accounts
+    ]
+
+
 @app.post("/api/accounts")
 async def create_account(payload: AccountCreate):
     platform = await db.get_or_create_platform(payload.platform, base_url="")
@@ -109,7 +172,30 @@ async def create_account(payload: AccountCreate):
     )
     if payload.is_active is False:
         await db.set_account_active(account.id, False)
+    else:
+        await db.set_primary_account(platform.id, account.id)
     return {"id": account.id}
+
+
+@app.patch("/api/accounts/{account_id}")
+async def update_account(account_id: int, payload: AccountUpdate):
+    data = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    updated = await db.update_account(account_id, data)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Not found")
+    if "is_active" in data and data["is_active"] is True:
+        await db.set_primary_account(updated.platform_id, updated.id)
+    return {"status": "ok"}
+
+
+@app.delete("/api/accounts/{account_id}")
+async def delete_account(account_id: int):
+    success = await db.delete_account(account_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"status": "ok"}
 
 
 @app.get("/api/monitored-urls")
@@ -172,17 +258,12 @@ async def run_scrape(payload: RunScrapeRequest = Body(default=RunScrapeRequest()
 
 
 @app.get("/api/download-new")
-async def download_new(platform: Optional[str] = None):
+async def download_new():
     urls = await db.get_active_monitored_urls()
-    if platform:
-        platform = platform.lower().strip()
-
-    if not platform:
-        raise HTTPException(status_code=400, detail="platform is required")
 
     wb = Workbook()
     ws = wb.active
-    ws.title = f"{platform}-new-posts"
+    ws.title = "new-posts"
     ws.append(
         [
             "platform",
@@ -205,9 +286,6 @@ async def download_new(platform: Optional[str] = None):
         plat = await db.get_platform_by_id(monitored.platform_id)
         if not plat:
             continue
-        if platform and plat.name != platform:
-            continue
-
         posts = await db.get_new_posts_for_url(
             monitored.platform_id, monitored.url, monitored.last_exported_at
         )
@@ -241,10 +319,11 @@ async def download_new(platform: Optional[str] = None):
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
+    filename = f"Social Media Monitoring - {datetime.utcnow().strftime('%Y%m%d')}.xlsx"
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=new_posts_{platform}.xlsx"},
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
@@ -264,10 +343,14 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
 
     platforms = {}
     for u in urls:
-        if platform_filters:
-            platform = await db.get_platform_by_id(u.platform_id)
-            if not platform or platform.name not in platform_filters:
-                continue
+        platform = await db.get_platform_by_id(u.platform_id)
+        if not platform:
+            continue
+        allowed = platform_filters
+        if allowed is None:
+            allowed = _enabled_platforms
+        if allowed and platform.name not in allowed:
+            continue
         platforms.setdefault(u.platform_id, []).append(u)
 
     for platform_id, platform_urls in platforms.items():
@@ -276,7 +359,7 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
             continue
 
         platform_name = platform.name
-        if platform_name != "linkedin":
+        if platform_name not in ("linkedin", "x"):
             await progress_hub.broadcast(
                 {
                     "type": "status",
@@ -290,7 +373,10 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
             {"type": "milestone", "platform": platform_name, "stage": "init"}
         )
 
-        scraper = LinkedInCompanyScraper()
+        if platform_name == "linkedin":
+            scraper = LinkedInCompanyScraper()
+        else:
+            scraper = XScraper(platform_name=platform_name)
         try:
             await scraper.initialize()
             await scraper.start_browser(headless=settings.headless)
@@ -309,7 +395,17 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
             await progress_hub.broadcast(
                 {"type": "milestone", "platform": platform_name, "stage": "login"}
             )
-            await scraper.login(account.username, "")
+            login_ok = await scraper.login(account.username, "")
+            if not login_ok:
+                await progress_hub.broadcast(
+                    {
+                        "type": "error",
+                        "platform": platform_name,
+                        "message": "Login failed; skipping platform run.",
+                    }
+                )
+                await scraper.cleanup()
+                continue
 
             total = len(platform_urls)
             processed = 0
@@ -329,8 +425,12 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
                     }
                 )
 
-                posts = await scraper.scrape_company_posts(monitored.url, limit=0)
-                saved = await scraper.save_company_posts(posts)
+                if platform_name == "linkedin":
+                    posts = await scraper.scrape_company_posts(monitored.url, limit=0)
+                    saved = await scraper.save_company_posts(posts)
+                else:
+                    posts = await scraper.scrape_profile_posts(monitored.url, limit=0)
+                    saved = await scraper.save_company_posts(posts)
                 saved_total += saved
 
                 await db.update_monitored_url(

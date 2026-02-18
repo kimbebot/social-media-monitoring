@@ -214,7 +214,7 @@ class SessionManager:
     """Manage browser sessions and cookies"""
 
     @staticmethod
-    async def save_session(context: BrowserContext, platform: str, account_id: int):
+    async def save_session(context: BrowserContext, platform: str, account_key: str):
         """Save cookies and session storage"""
         cookies = await context.cookies()
         storage = await context.storage_state()
@@ -226,13 +226,26 @@ class SessionManager:
 
         session_dir = Path(settings.user_data_dir)
         session_dir.mkdir(parents=True, exist_ok=True)
-        session_file = session_dir / f"{platform}_{account_id}_session.json"
-        with open(session_file, "w") as f:
-            json.dump(storage, f)
+        if platform == "x":
+            session_file = session_dir / "x_session.json"
+        else:
+            safe_key = SessionManager._safe_key(account_key)
+            session_file = session_dir / f"{platform}_{safe_key}_session.json"
+        try:
+            with open(session_file, "w") as f:
+                json.dump(storage, f)
+            from loguru import logger
+            logger.success(f"Session saved: {session_file}")
+        except Exception as e:
+            try:
+                from loguru import logger
+                logger.error(f"Session save failed: {session_file} ({e})")
+            except Exception:
+                pass
 
     @staticmethod
     async def load_session(
-        context: BrowserContext, platform: str, account_id: int
+        context: BrowserContext, platform: str, account_key: str
     ) -> bool:
         """Load saved session"""
         import json
@@ -240,8 +253,23 @@ class SessionManager:
         from app.config.settings import settings
 
         session_dir = Path(settings.user_data_dir)
-        session_file = session_dir / f"{platform}_{account_id}_session.json"
+        if platform == "x":
+            session_file = session_dir / "x_session.json"
+        else:
+            safe_key = SessionManager._safe_key(account_key)
+            session_file = session_dir / f"{platform}_{safe_key}_session.json"
+        logger = None
+        try:
+            from loguru import logger as _logger
+            logger = _logger
+        except Exception:
+            logger = None
+
+        if logger:
+            logger.info(f"Session load: {session_file}")
         if not session_file.exists():
+            if logger:
+                logger.warning("Session file not found")
             return False
 
         try:
@@ -269,9 +297,22 @@ class SessionManager:
                     }})();
                     """
                 )
+            if logger:
+                logger.success("Session loaded (cookies + localStorage)")
             return True
         except Exception:
+            if logger:
+                logger.error("Session load failed")
             return False
+
+    @staticmethod
+    def _safe_key(value: str) -> str:
+        """Make a filesystem-safe key."""
+        import re
+
+        if not value:
+            return "unknown"
+        return re.sub(r"[^a-zA-Z0-9._-]+", "_", value.strip().lower())
 
 
 # Export key classes

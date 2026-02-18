@@ -66,7 +66,7 @@ class DatabaseManager:
         defaults = [
             ("linkedin", "https://www.linkedin.com"),
             ("facebook", "https://www.facebook.com"),
-            ("twitter", "https://x.com"),
+            ("x", "https://x.com"),
         ]
         platforms = []
         for name, base_url in defaults:
@@ -102,6 +102,40 @@ class DatabaseManager:
                 password_encrypted=password_encrypted
             )
             session.add(account)
+            await session.commit()
+            await session.refresh(account)
+            return account
+
+    async def list_accounts(self) -> List[Account]:
+        """List all accounts"""
+        async with self.get_session() as session:
+            result = await session.execute(select(Account))
+            return result.scalars().all()
+
+    async def delete_account(self, account_id: int) -> bool:
+        """Delete an account"""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(Account).where(Account.id == account_id)
+            )
+            account = result.scalar_one_or_none()
+            if not account:
+                return False
+            await session.delete(account)
+            await session.commit()
+            return True
+
+    async def update_account(self, account_id: int, data: dict) -> Optional[Account]:
+        """Update an account"""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(Account).where(Account.id == account_id)
+            )
+            account = result.scalar_one_or_none()
+            if not account:
+                return None
+            for key, value in data.items():
+                setattr(account, key, value)
             await session.commit()
             await session.refresh(account)
             return account
@@ -158,6 +192,20 @@ class DatabaseManager:
             if not account:
                 return False
             account.is_active = is_active
+            await session.commit()
+            return True
+
+    async def set_primary_account(self, platform_id: int, account_id: int) -> bool:
+        """Ensure only one active account per platform."""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(Account).where(Account.platform_id == platform_id)
+            )
+            accounts = result.scalars().all()
+            if not accounts:
+                return False
+            for account in accounts:
+                account.is_active = account.id == account_id
             await session.commit()
             return True
     

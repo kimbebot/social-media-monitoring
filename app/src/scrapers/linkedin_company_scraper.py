@@ -150,8 +150,11 @@ class LinkedInCompanyScraper(BaseScraper):
                             f"⏳ Still waiting... ({(i + 1) * 10} seconds elapsed)"
                         )
 
-            # Wait for navigation
-            await self.page.wait_for_load_state("networkidle", timeout=30000)
+            # Wait for navigation (LinkedIn often keeps network busy)
+            try:
+                await self.page.wait_for_load_state("networkidle", timeout=30000)
+            except Exception as e:
+                logger.warning(f"Networkidle wait timed out, continuing: {e}")
             await HumanBehavior.random_delay(2, 3)
 
             # Check if login was successful
@@ -344,7 +347,7 @@ class LinkedInCompanyScraper(BaseScraper):
                             post_elements.append(div)
                             if len(post_elements) >= limit:
                                 break
-                    except:
+                    except Exception:
                         continue
 
                 if post_elements:
@@ -372,7 +375,7 @@ class LinkedInCompanyScraper(BaseScraper):
             # Extract data from posts
             seen_ids = set()
             processed = 0
-            for post_element in post_elements:
+            for idx, post_element in enumerate(post_elements):
                 try:
                     if target_limit and processed >= target_limit:
                         break
@@ -876,6 +879,7 @@ class LinkedInCompanyScraper(BaseScraper):
         """
         try:
             current_url = (self.page.url or "").lower()
+            logger.info(f"Account selection check: {current_url}")
             if "account" in current_url or "select" in current_url or "uas/login" in current_url:
                 await HumanBehavior.random_delay(2, 3)
                 return await self._handle_account_selection()
