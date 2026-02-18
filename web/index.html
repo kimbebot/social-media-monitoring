@@ -8,90 +8,238 @@
   </head>
   <body>
     <div class="app">
-      <header>
-        <h1>Social Monitor</h1>
-        <button id="runScrapeBtn">Run Scrape</button>
+      <header class="app-header">
+        <div class="title">
+          <span class="badge">Social Media Monitor</span>
+          <h1>Social Media Monitor</h1>
+          <p>Track posts across platforms, detect change, and export updates.</p>
+        </div>
+        <div class="header-actions">
+          <button id="settingsBtn" class="icon-button" aria-label="Settings">
+            &#9881;
+          </button>
+        </div>
       </header>
 
-      <section class="panel">
-        <h2>Monitored URLs</h2>
-        <form id="addForm">
-          <label>
-            Platform
-            <select id="platformSelect"></select>
-          </label>
-          <label>
-            URL
-            <input id="urlInput" type="url" placeholder="https://..." required />
-          </label>
-          <label>
-            Label
-            <input id="labelInput" type="text" placeholder="Optional" />
-          </label>
-          <label class="checkbox">
-            <input id="activeInput" type="checkbox" checked />
-            Active
-          </label>
-          <button type="submit">Add URL</button>
-        </form>
+      <main class="grid">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Active URLs</h2>
+          </div>
+          <div class="filters">
+            <label>
+              Platform
+              <select id="filterPlatform"></select>
+            </label>
+            <label>
+              Active
+              <select id="filterActive">
+                <option value="all">All</option>
+                <option value="true" selected>Active</option>
+                <option value="false">Inactive</option>
+              </select>
+            </label>
+            <label>
+              Search Label
+              <input id="filterSearch" type="text" placeholder="Search label..." />
+            </label>
+          </div>
 
-        <table>
-          <thead>
-            <tr>
-              <th>Platform</th>
-              <th>URL</th>
-              <th>Label</th>
-              <th>Active</th>
-              <th>Last Checked</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="urlTableBody"></tbody>
-        </table>
-      </section>
+          <table>
+            <thead>
+              <tr>
+                <th>Platform</th>
+                <th>Label</th>
+                <th>Active</th>
+                <th>Last Checked</th>
+                <th>Last Download</th>
+              </tr>
+            </thead>
+            <tbody id="activeUrlTableBody"></tbody>
+          </table>
 
-      <section class="panel">
-        <h2>Accounts</h2>
-        <form id="accountForm">
-          <label>
-            Platform
-            <select id="accountPlatformSelect"></select>
-          </label>
-          <label>
-            Username
-            <input id="accountUsername" type="text" required />
-          </label>
-          <label>
-            Email
-            <input id="accountEmail" type="email" />
-          </label>
-          <label>
-            Password
-            <input id="accountPassword" type="password" required />
-          </label>
-          <label class="checkbox">
-            <input id="accountActive" type="checkbox" checked />
-            Active
-          </label>
-          <button type="submit">Add Account</button>
-        </form>
-        <div class="note">
-          Passwords are encrypted before saving. Use an app-specific password when possible.
+          <div class="pagination">
+            <button id="prevPage">Prev</button>
+            <span id="pageInfo">Page 1</span>
+            <button id="nextPage">Next</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Bot Progress</h2>
+            <div class="header-actions">
+              <button id="runScrapeBtn" class="primary">Run Scrape</button>
+              <button id="downloadBtn" class="secondary">Download Results</button>
+            </div>
+          </div>
+          <div class="download-row hidden"></div>
+          <div id="progressContainer" class="progress-list"></div>
+          <div id="statusLog"></div>
+        </section>
+      </main>
+    </div>
+
+    <div id="settingsModal" class="modal hidden" aria-hidden="true">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Settings</h3>
+          <button class="icon-button" id="closeSettingsBtn" aria-label="Close">✕</button>
         </div>
-      </section>
-
-      <section class="panel">
-        <h2>Progress</h2>
-        <div class="download-row">
-          <label>
-            Platform
-            <select id="downloadPlatformSelect"></select>
-          </label>
-          <button id="downloadBtn" class="secondary">Download New Posts (Excel)</button>
+        <div class="modal-body">
+          <div class="setting-row">
+            <div>
+              <h4>Theme</h4>
+              <p>Switch between Light and Dark.</p>
+            </div>
+            <label class="switch">
+              <input id="themeToggle" type="checkbox" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <h4>Headless</h4>
+              <p>Run browsers in the background (no visible window).</p>
+            </div>
+            <label class="switch">
+              <input id="headlessToggle" type="checkbox" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div>
+              <h4>Platforms</h4>
+              <p>Select which platforms to run in bot mode.</p>
+            </div>
+            <button id="openPlatformsBtn">Manage</button>
+          </div>
+          <div class="setting-row">
+            <div>
+              <h4>Accounts</h4>
+              <p>Add, delete, and activate accounts.</p>
+            </div>
+            <button id="openAccountsBtn">Manage</button>
+          </div>
+          <div class="setting-row">
+            <div>
+              <h4>Monitored URLs</h4>
+              <p>Add, edit, delete, or toggle URLs.</p>
+            </div>
+            <button id="openUrlsBtn">Manage</button>
+          </div>
         </div>
-        <div id="progressContainer"></div>
-        <div id="statusLog"></div>
-      </section>
+      </div>
+    </div>
+
+    <div id="accountsModal" class="modal hidden" aria-hidden="true">
+      <div class="modal-content large">
+        <div class="modal-header">
+          <h3>Accounts</h3>
+          <button class="icon-button" id="closeAccountsBtn" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <form id="accountForm">
+            <label>
+              Platform
+              <select id="accountPlatformSelect"></select>
+            </label>
+            <label>
+              Username
+              <input id="accountUsername" type="text" required />
+            </label>
+            <label>
+              Email
+              <input id="accountEmail" type="email" />
+            </label>
+            <label>
+              Password
+              <input id="accountPassword" type="password" required />
+            </label>
+            <label class="checkbox">
+              <input id="accountActive" type="checkbox" checked />
+              Active
+            </label>
+            <button type="submit">Add Account</button>
+          </form>
+          <div class="note">
+            Passwords are encrypted before saving. Use an app-specific password when possible.
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Platform</th>
+                <th>Username</th>
+                <th>Email</th>
+                <th>Active</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="accountsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="urlsModal" class="modal hidden" aria-hidden="true">
+      <div class="modal-content large">
+        <div class="modal-header">
+          <h3>Monitored URLs</h3>
+          <button class="icon-button" id="closeUrlsBtn" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <form id="addForm">
+            <label>
+              Platform
+              <select id="platformSelect"></select>
+            </label>
+            <label>
+              URL
+              <input id="urlInput" type="url" placeholder="https://..." required />
+            </label>
+            <label>
+              Label
+              <input id="labelInput" type="text" placeholder="Optional" />
+            </label>
+            <label class="checkbox">
+              <input id="activeInput" type="checkbox" checked />
+              Active
+            </label>
+            <button type="submit">Add URL</button>
+          </form>
+          <table>
+            <thead>
+              <tr>
+                <th>Platform</th>
+                <th>URL</th>
+                <th>Label</th>
+                <th>Active</th>
+                <th>Last Checked</th>
+                <th>Last Download</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="urlTableBody"></tbody>
+          </table>
+          <div class="pagination">
+            <button id="urlsPrevPage">Prev</button>
+            <span id="urlsPageInfo">Page 1</span>
+            <button id="urlsNextPage">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="platformsModal" class="modal hidden" aria-hidden="true">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Platforms</h3>
+          <button class="icon-button" id="closePlatformsBtn" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="platformToggles" class="platform-toggles"></div>
+        </div>
+      </div>
     </div>
 
     <script src="/static/app.js"></script>
