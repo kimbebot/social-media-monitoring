@@ -21,6 +21,7 @@ from app.src.database.db_manager import db
 from app.src.utils.encryption import encryption
 from app.src.scrapers.linkedin_company_scraper import LinkedInCompanyScraper
 from app.src.scrapers.x_scraper import XScraper
+from app.src.scrapers.instagram_scraper import InstagramScraper
 
 BASE_DIR = Path(__file__).resolve().parent
 REPO_DIR = BASE_DIR.parent
@@ -359,7 +360,7 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
             continue
 
         platform_name = platform.name
-        if platform_name not in ("linkedin", "x"):
+        if platform_name not in ("linkedin", "x", "instagram"):
             await progress_hub.broadcast(
                 {
                     "type": "status",
@@ -375,6 +376,8 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
 
         if platform_name == "linkedin":
             scraper = LinkedInCompanyScraper()
+        elif platform_name == "instagram":
+            scraper = InstagramScraper()
         else:
             scraper = XScraper(platform_name=platform_name)
         try:
@@ -427,6 +430,9 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
 
                 if platform_name == "linkedin":
                     posts = await scraper.scrape_company_posts(monitored.url, limit=0)
+                    saved = await scraper.save_company_posts(posts)
+                elif platform_name == "instagram":
+                    posts = await scraper.scrape_profile_posts(monitored.url, limit=5)
                     saved = await scraper.save_company_posts(posts)
                 else:
                     posts = await scraper.scrape_profile_posts(monitored.url, limit=0)

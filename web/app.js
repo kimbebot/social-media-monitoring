@@ -309,6 +309,8 @@ function ensureProgressBar(platform) {
     linkedin: "/static/images/linkedin.webp",
     facebook: "/static/images/facebook.webp",
     x: "/static/images/x.jpg",
+    instagram: "/static/images/instagram.webp",
+    ig: "/static/images/instagram.webp",
   };
   img.src = iconMap[platform] || "/static/images/linkedin.webp";
   img.alt = platform;

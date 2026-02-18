@@ -67,6 +67,7 @@ class DatabaseManager:
             ("linkedin", "https://www.linkedin.com"),
             ("facebook", "https://www.facebook.com"),
             ("x", "https://x.com"),
+            ("instagram", "https://www.instagram.com"),
         ]
         platforms = []
         for name, base_url in defaults:
