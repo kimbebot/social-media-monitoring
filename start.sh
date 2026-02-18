@@ -8,4 +8,9 @@ if [ -f .env ]; then
   set +a
 fi
 
+if [ -f .venv/bin/activate ]; then
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+fi
+
 exec uvicorn app.api_server:app --reload
