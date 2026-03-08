@@ -30,7 +30,7 @@ async def main():
     parser.add_argument(
         "--platform",
         required=True,
-        choices=["x", "instagram", "linkedin"],
+        choices=["x", "instagram", "linkedin", "facebook"],
         help="Platform to capture session for",
     )
     parser.add_argument(
@@ -56,6 +56,7 @@ async def main():
         "x": "https://x.com/login",
         "instagram": "https://www.instagram.com/accounts/login/",
         "linkedin": "https://www.linkedin.com/login",
+        "facebook": "https://www.facebook.com/login",
     }[platform]
 
     print(f"Starting visible browser. Please log in to {platform} manually.")

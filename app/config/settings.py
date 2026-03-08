@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # Browser
     headless: bool = Field(default=True)
     user_data_dir: str = Field(default="./browser_profiles")
+
+    # Execution mode
+    run_parallel: bool = Field(default=False)
     
     # Proxy
     use_proxy: bool = Field(default=False)

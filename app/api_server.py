@@ -18,10 +18,12 @@ from loguru import logger
 
 from app.config.settings import settings
 from app.src.database.db_manager import db
+from app.src.database.models import MonitoredUrl
 from app.src.utils.encryption import encryption
 from app.src.scrapers.linkedin_company_scraper import LinkedInCompanyScraper
 from app.src.scrapers.x_scraper import XScraper
 from app.src.scrapers.instagram_scraper import InstagramScraper
+from app.src.scrapers.facebook_scraper import FacebookScraper
 
 BASE_DIR = Path(__file__).resolve().parent
 REPO_DIR = BASE_DIR.parent
@@ -58,7 +60,7 @@ class AccountUpdate(BaseModel):
 
 class AppSettings(BaseModel):
     headless: bool
-    enabled_platforms: List[str]
+    run_parallel: bool = False
 
 
 class RunScrapeRequest(BaseModel):
@@ -89,7 +91,7 @@ class ProgressHub:
 
 progress_hub = ProgressHub()
 _current_job: Optional[asyncio.Task] = None
-_enabled_platforms: Optional[List[str]] = None
+_run_parallel: Optional[bool] = None
 
 
 def _update_env_setting(key: str, value: str):
@@ -124,25 +126,47 @@ async def index():
 
 @app.get("/api/platforms")
 async def list_platforms():
-    platforms = await db.get_active_platforms()
-    return [{"id": p.id, "name": p.name} for p in platforms]
+    platforms = await db.list_platforms()
+    return [{"id": p.id, "name": p.name, "is_active": p.is_active} for p in platforms]
+
+
+class PlatformUpdate(BaseModel):
+    is_active: bool
+
+
+@app.patch("/api/platforms/{platform_id}")
+async def update_platform(platform_id: int, payload: PlatformUpdate):
+    platform = await db.get_platform_by_id(platform_id)
+    if not platform:
+        raise HTTPException(status_code=404, detail="Platform not found")
+    await db.update_platform(platform_id, {"is_active": payload.is_active})
+    return {"status": "ok", "id": platform_id, "is_active": payload.is_active}
 
 
 @app.get("/api/settings")
 async def get_settings():
-    platforms = _enabled_platforms
-    if platforms is None:
-        platforms = [p.name for p in await db.get_active_platforms()]
-    return {"headless": settings.headless, "enabled_platforms": platforms}
+    run_parallel = _run_parallel
+    if run_parallel is None:
+        run_parallel = settings.run_parallel
+    return {
+        "headless": settings.headless,
+        "run_parallel": run_parallel,
+    }
 
 
 @app.patch("/api/settings")
 async def update_settings(payload: AppSettings):
     settings.headless = payload.headless
     _update_env_setting("HEADLESS", "true" if payload.headless else "false")
-    global _enabled_platforms
-    _enabled_platforms = [p.lower() for p in payload.enabled_platforms]
-    return {"status": "ok", "headless": settings.headless, "enabled_platforms": _enabled_platforms}
+    global _run_parallel
+    _run_parallel = bool(payload.run_parallel)
+    settings.run_parallel = _run_parallel
+    _update_env_setting("RUN_PARALLEL", "true" if _run_parallel else "false")
+    return {
+        "status": "ok",
+        "headless": settings.headless,
+        "run_parallel": _run_parallel,
+    }
 
 
 @app.get("/api/accounts")
@@ -255,6 +279,12 @@ async def run_scrape(payload: RunScrapeRequest = Body(default=RunScrapeRequest()
         raise HTTPException(status_code=409, detail="Scrape already running")
 
     _current_job = asyncio.create_task(_run_scrape_job(payload.platforms))
+    def _log_task_result(task: asyncio.Task):
+        try:
+            task.result()
+        except Exception as exc:
+            logger.error(f"Scrape task failed: {exc}")
+    _current_job.add_done_callback(_log_task_result)
     return {"status": "started"}
 
 
@@ -339,28 +369,40 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 async def _run_scrape_job(platform_filters: Optional[List[str]]):
+    logger.info("Scrape job started")
     await progress_hub.broadcast({"type": "status", "message": "Starting scrape..."})
     urls = await db.get_active_monitored_urls()
+    if not urls:
+        logger.warning("No active monitored URLs found. Exiting scrape job.")
+        await progress_hub.broadcast({"type": "status", "message": "No active URLs to scrape."})
+        return
 
     platforms = {}
     for u in urls:
         platform = await db.get_platform_by_id(u.platform_id)
         if not platform:
             continue
+        if not platform.is_active:
+            continue
         allowed = platform_filters
-        if allowed is None:
-            allowed = _enabled_platforms
         if allowed and platform.name not in allowed:
             continue
         platforms.setdefault(u.platform_id, []).append(u)
+    if not platforms:
+        logger.warning("No platforms selected to run. Exiting scrape job.")
+        await progress_hub.broadcast({"type": "status", "message": "No platforms selected to run."})
+        return
 
-    for platform_id, platform_urls in platforms.items():
+    async def _run_platform(platform_id: int, platform_urls: List[MonitoredUrl]):
         platform = await db.get_platform_by_id(platform_id)
         if not platform:
-            continue
+            return
+        if not platform.is_active:
+            return
+        logger.info(f"Starting platform run: {platform.name} ({len(platform_urls)} URLs)")
 
         platform_name = platform.name
-        if platform_name not in ("linkedin", "x", "instagram"):
+        if platform_name not in ("linkedin", "x", "instagram", "facebook"):
             await progress_hub.broadcast(
                 {
                     "type": "status",
@@ -368,7 +410,7 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
                     "message": "No scraper configured yet.",
                 }
             )
-            continue
+            return
 
         await progress_hub.broadcast(
             {"type": "milestone", "platform": platform_name, "stage": "init"}
@@ -376,6 +418,8 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
 
         if platform_name == "linkedin":
             scraper = LinkedInCompanyScraper()
+        elif platform_name == "facebook":
+            scraper = FacebookScraper()
         elif platform_name == "instagram":
             scraper = InstagramScraper()
         else:
@@ -393,7 +437,7 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
                         "message": "No active account configured.",
                     }
                 )
-                continue
+                return
 
             await progress_hub.broadcast(
                 {"type": "milestone", "platform": platform_name, "stage": "login"}
@@ -408,28 +452,28 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
                     }
                 )
                 await scraper.cleanup()
-                continue
+                return
 
             total = len(platform_urls)
             processed = 0
             saved_total = 0
 
             for monitored in platform_urls:
-                processed += 1
                 await progress_hub.broadcast(
                     {
-                        "type": "progress",
+                        "type": "status",
                         "platform": platform_name,
-                        "stage": "scrape",
-                        "current": processed,
-                        "total": total,
-                        "url": monitored.url,
-                        "percent": int((processed / total) * 100),
+                        "message": f"Scraping {monitored.url}",
                     }
                 )
 
+                processed += 1
+
                 if platform_name == "linkedin":
                     posts = await scraper.scrape_company_posts(monitored.url, limit=0)
+                    saved = await scraper.save_company_posts(posts)
+                elif platform_name == "facebook":
+                    posts = await scraper.scrape_profile_posts(monitored.url, limit=5)
                     saved = await scraper.save_company_posts(posts)
                 elif platform_name == "instagram":
                     posts = await scraper.scrape_profile_posts(monitored.url, limit=5)
@@ -445,11 +489,13 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
 
                 await progress_hub.broadcast(
                     {
-                        "type": "milestone",
+                        "type": "progress",
                         "platform": platform_name,
                         "stage": "save",
                         "current": processed,
                         "total": total,
+                        "url": monitored.url,
+                        "percent": int((processed / total) * 100),
                     }
                 )
 
@@ -469,5 +515,14 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
             )
         finally:
             await scraper.cleanup()
+
+    run_parallel = _run_parallel if _run_parallel is not None else settings.run_parallel
+    if run_parallel:
+        tasks = [asyncio.create_task(_run_platform(pid, urls)) for pid, urls in platforms.items()]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+    else:
+        for platform_id, platform_urls in platforms.items():
+            await _run_platform(platform_id, platform_urls)
 
     await progress_hub.broadcast({"type": "status", "message": "Scrape finished."})

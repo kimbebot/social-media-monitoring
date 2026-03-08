@@ -74,6 +74,12 @@ class DatabaseManager:
             platform = await self.get_or_create_platform(name=name, base_url=base_url)
             platforms.append(platform)
         return platforms
+
+    async def list_platforms(self) -> List[Platform]:
+        """List all platforms (active and inactive)."""
+        async with self.get_session() as session:
+            result = await session.execute(select(Platform))
+            return result.scalars().all()
     
     async def get_active_platforms(self) -> List[Platform]:
         """Get all active platforms"""
@@ -90,6 +96,22 @@ class DatabaseManager:
                 select(Platform).where(Platform.id == platform_id)
             )
             return result.scalar_one_or_none()
+
+    async def update_platform(self, platform_id: int, updates: dict) -> Optional[Platform]:
+        """Update platform fields."""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(Platform).where(Platform.id == platform_id)
+            )
+            platform = result.scalar_one_or_none()
+            if not platform:
+                return None
+            for key, value in updates.items():
+                if hasattr(platform, key):
+                    setattr(platform, key, value)
+            await session.commit()
+            await session.refresh(platform)
+            return platform
     
     # Account operations
     async def create_account(self, platform_id: int, username: str, 

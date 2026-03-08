@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Social Monitor</title>
     <link rel="stylesheet" href="/static/styles.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
   </head>
   <body>
     <div class="app">
@@ -97,15 +101,31 @@
               <span class="slider"></span>
             </label>
           </div>
-          <div class="setting-row">
-            <div>
-              <h4>Headless</h4>
-              <p>Run browsers in the background (no visible window).</p>
+          <div class="settings-group">
+            <div class="group-header">
+              <h4>Bot Behavior</h4>
+              <p>Control how the bots run.</p>
             </div>
-            <label class="switch">
-              <input id="headlessToggle" type="checkbox" />
-              <span class="slider"></span>
-            </label>
+            <div class="setting-row">
+              <div>
+                <h4>Headless</h4>
+                <p>Run browsers in the background (no visible window).</p>
+              </div>
+              <label class="switch">
+                <input id="headlessToggle" type="checkbox" />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div>
+                <h4>Run Simultaneously</h4>
+                <p>Run platforms at the same time when enabled.</p>
+              </div>
+              <label class="switch">
+                <input id="runParallelToggle" type="checkbox" />
+                <span class="slider"></span>
+              </label>
+            </div>
           </div>
           <div class="setting-row">
             <div>
@@ -242,6 +262,7 @@
       </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script src="/static/app.js"></script>
   </body>
 </html>

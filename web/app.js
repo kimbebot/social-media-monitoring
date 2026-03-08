@@ -34,9 +34,11 @@ const closeUrlsBtn = document.getElementById("closeUrlsBtn");
 const closePlatformsBtn = document.getElementById("closePlatformsBtn");
 const themeToggle = document.getElementById("themeToggle");
 const headlessToggle = document.getElementById("headlessToggle");
+const runParallelToggle = document.getElementById("runParallelToggle");
 const platformToggles = document.getElementById("platformToggles");
 
 const platformMap = new Map();
+const platformStatus = new Map();
 const progressBars = new Map();
 let allUrls = [];
 let allAccounts = [];
@@ -52,14 +54,45 @@ function logStatus(message) {
   statusLog.prepend(div);
 }
 
+function showToast(message, type = "info") {
+  if (window.Toastify) {
+    Toastify({
+      text: message,
+      duration: 2500,
+      gravity: "top",
+      position: "right",
+      close: false,
+      backgroundColor:
+        type === "error"
+          ? "#c0392b"
+          : type === "success"
+          ? "#1f8f7a"
+          : "#2c3e50",
+    }).showToast();
+    return;
+  }
+  logStatus(message);
+}
+
+function appendProgressDetail(platform, message) {
+  const entry = ensureProgressBar(platform);
+  if (!entry.details) return;
+  const item = document.createElement("div");
+  item.className = "progress-detail";
+  item.textContent = message;
+  entry.details.prepend(item);
+}
 async function loadPlatforms() {
   const res = await fetch("/api/platforms");
   const platforms = await res.json();
   platformSelect.innerHTML = "";
   accountPlatformSelect.innerHTML = "";
   filterPlatform.innerHTML = '<option value="all">All</option>';
+  platformMap.clear();
+  platformStatus.clear();
   platforms.forEach((p) => {
     platformMap.set(p.id, p.name);
+    platformStatus.set(p.name, p.is_active !== false);
     const option = document.createElement("option");
     option.value = p.name;
     option.textContent = p.name;
@@ -67,6 +100,8 @@ async function loadPlatforms() {
     accountPlatformSelect.appendChild(option.cloneNode(true));
     filterPlatform.appendChild(option.cloneNode(true));
   });
+  renderPlatformToggles(platforms);
+  hideUnselectedProgress();
 }
 
 async function loadUrls() {
@@ -188,8 +223,9 @@ addForm.addEventListener("submit", async (e) => {
     addForm.reset();
     document.getElementById("activeInput").checked = true;
     await loadUrls();
+    showToast("URL added", "success");
   } else {
-    logStatus("Failed to add URL");
+    showToast("Failed to add URL", "error");
   }
 });
 
@@ -212,10 +248,10 @@ accountForm.addEventListener("submit", async (e) => {
   if (res.ok) {
     accountForm.reset();
     document.getElementById("accountActive").checked = true;
-    logStatus("Account added");
+    showToast("Account added", "success");
     await loadAccounts();
   } else {
-    logStatus("Failed to add account");
+    showToast("Failed to add account", "error");
   }
 });
 
@@ -235,11 +271,13 @@ urlTableBody.addEventListener("click", async (e) => {
       body: JSON.stringify({ url: newUrl, label: newLabel }),
     });
     await loadUrls();
+    showToast("URL updated", "success");
   }
   if (e.target.classList.contains("delete-btn")) {
     const id = e.target.dataset.id;
     await fetch(`/api/monitored-urls/${id}`, { method: "DELETE" });
     await loadUrls();
+    showToast("URL deleted", "success");
   }
 });
 
@@ -261,6 +299,7 @@ urlTableBody.addEventListener("change", async (e) => {
       body: JSON.stringify({ is_active: e.target.checked }),
     });
     await loadUrls();
+    showToast("URL status updated", "success");
   }
 });
 
@@ -269,6 +308,7 @@ accountsTableBody.addEventListener("click", async (e) => {
     const id = e.target.dataset.id;
     await fetch(`/api/accounts/${id}`, { method: "DELETE" });
     await loadAccounts();
+    showToast("Account deleted", "success");
   }
 });
 
@@ -281,6 +321,7 @@ accountsTableBody.addEventListener("change", async (e) => {
       body: JSON.stringify({ is_active: e.target.checked }),
     });
     await loadAccounts();
+    showToast("Account status updated", "success");
   }
 });
 
@@ -288,7 +329,7 @@ runScrapeBtn.addEventListener("click", async () => {
   const res = await fetch("/api/run-scrape", { method: "POST" });
   if (!res.ok) {
     const data = await res.json();
-    logStatus(data.detail || "Scrape already running");
+    showToast(data.detail || "Scrape already running", "error");
   }
 });
 
@@ -329,9 +370,19 @@ function ensureProgressBar(platform) {
   barWrap.appendChild(bar);
   barWrap.appendChild(label);
   wrapper.appendChild(barWrap);
+  const detailsToggle = document.createElement("button");
+  detailsToggle.className = "details-toggle";
+  detailsToggle.textContent = "Details";
+  const details = document.createElement("div");
+  details.className = "progress-details hidden";
+  detailsToggle.addEventListener("click", () => {
+    details.classList.toggle("hidden");
+  });
+  wrapper.appendChild(detailsToggle);
+  wrapper.appendChild(details);
   progressContainer.appendChild(wrapper);
 
-  const entry = { fill, label };
+  const entry = { fill, label, details };
   progressBars.set(platform, entry);
   return entry;
 }
@@ -359,7 +410,11 @@ function connectWebSocket() {
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
     if (data.type === "status") {
-      logStatus(data.message);
+      if (data.platform) {
+        appendProgressDetail(data.platform, data.message);
+      } else {
+        logStatus(data.message);
+      }
     }
     if (data.type === "progress") {
       showProgressForPlatform(data.platform);
@@ -376,11 +431,13 @@ function connectWebSocket() {
     if (data.type === "done") {
       showProgressForPlatform(data.platform);
       updateProgress(data.platform, 100, "done");
-      logStatus(`${data.platform} saved ${data.saved} posts`);
+      appendProgressDetail(data.platform, `Saved ${data.saved} posts`);
+      showToast(`${data.platform} saved ${data.saved} posts`, "success");
     }
     if (data.type === "error") {
       showProgressForPlatform(data.platform);
-      logStatus(`${data.platform}: ${data.message}`);
+      appendProgressDetail(data.platform, `Error: ${data.message}`);
+      showToast(`${data.platform}: ${data.message}`, "error");
     }
   };
 
@@ -461,50 +518,65 @@ async function loadSettings() {
   if (!res.ok) return;
   const data = await res.json();
   headlessToggle.checked = data.headless === true;
-  renderPlatformToggles(data.enabled_platforms || []);
+  runParallelToggle.checked = data.run_parallel === true;
 }
 
 headlessToggle.addEventListener("change", async () => {
   await saveSettings();
 });
+runParallelToggle.addEventListener("change", async () => {
+  await saveSettings();
+});
 
 async function saveSettings() {
-  const enabled = Array.from(platformToggles.querySelectorAll("input"))
-    .filter((i) => i.checked)
-    .map((i) => i.value);
-
   const res = await fetch("/api/settings", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       headless: headlessToggle.checked,
-      enabled_platforms: enabled,
+      run_parallel: runParallelToggle.checked,
     }),
   });
   if (!res.ok) {
-    logStatus("Failed to update headless setting");
+    showToast("Failed to update settings", "error");
   } else {
-    logStatus(`Settings updated`);
+    showToast("Settings updated", "success");
     hideUnselectedProgress();
   }
 }
 
 function renderPlatformToggles(enabled) {
   platformToggles.innerHTML = "";
-  for (const name of platformMap.values()) {
+  for (const platform of enabled) {
     const label = document.createElement("label");
     label.className = "platform-row";
     label.innerHTML = `
-      ${name}
+      ${platform.name}
       <span class="switch">
-        <input type="checkbox" value="${name}" ${enabled.includes(name) ? "checked" : ""} />
+        <input type="checkbox" data-id="${platform.id}" value="${platform.name}" ${
+      platform.is_active ? "checked" : ""
+    } />
         <span class="slider"></span>
       </span>
     `;
     platformToggles.appendChild(label);
   }
   platformToggles.querySelectorAll("input").forEach((input) => {
-    input.addEventListener("change", saveSettings);
+    input.addEventListener("change", async (e) => {
+      const id = e.target.dataset.id;
+      const res = await fetch(`/api/platforms/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: e.target.checked }),
+      });
+      if (!res.ok) {
+        showToast("Failed to update platform", "error");
+        e.target.checked = !e.target.checked;
+        return;
+      }
+      await loadPlatforms();
+      showToast("Platform updated", "success");
+    });
   });
 }
 
@@ -516,11 +588,13 @@ function showProgressForPlatform(platform) {
 }
 
 function hideUnselectedProgress() {
-  const enabled = Array.from(platformToggles.querySelectorAll("input"))
-    .filter((i) => i.checked)
-    .map((i) => i.value);
+  const enabled = new Set(
+    Array.from(platformStatus.entries())
+      .filter(([, active]) => active)
+      .map(([name]) => name)
+  );
   document.querySelectorAll(".progress-block").forEach((block) => {
     const platform = block.dataset.platform;
-    block.classList.toggle("hidden", !enabled.includes(platform));
+    block.classList.toggle("hidden", !enabled.has(platform));
   });
 }
