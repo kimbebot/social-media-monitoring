@@ -54,6 +54,8 @@ class XScraper(BaseScraper):
             max_scrolls = 30
             stable_rounds = 0
             last_count = 0
+            seen_ids = set()
+            should_stop = False
 
             for _ in range(max_scrolls):
                 articles = await self.page.query_selector_all("article")
@@ -64,27 +66,33 @@ class XScraper(BaseScraper):
                 else:
                     stable_rounds += 1
 
-                if target_limit and current_count >= target_limit:
+                for article in articles:
+                    if target_limit and len(posts) >= target_limit:
+                        should_stop = True
+                        break
+                    post_data = await self._extract_post_data(article, profile_url)
+                    if not post_data:
+                        continue
+                    if post_data["post_id"] in seen_ids:
+                        continue
+                    if await self.post_url_exists(post_data.get("post_url")):
+                        logger.info(
+                            f"Encountered existing X post URL; stopping scan for {profile_url}"
+                        )
+                        should_stop = True
+                        break
+                    seen_ids.add(post_data["post_id"])
+                    posts.append(post_data)
+
+                if should_stop:
+                    break
+                if target_limit and len(posts) >= target_limit:
                     break
                 if stable_rounds >= 3:
                     break
 
                 await HumanBehavior.human_scroll(self.page, scrolls=2)
                 await HumanBehavior.random_delay(2, 4)
-
-            articles = await self.page.query_selector_all("article")
-            seen_ids = set()
-
-            for article in articles:
-                if target_limit and len(posts) >= target_limit:
-                    break
-                post_data = await self._extract_post_data(article, profile_url)
-                if not post_data:
-                    continue
-                if post_data["post_id"] in seen_ids:
-                    continue
-                seen_ids.add(post_data["post_id"])
-                posts.append(post_data)
 
             logger.success(f"✓ Scraped {len(posts)} posts from X profile")
         except Exception as e:

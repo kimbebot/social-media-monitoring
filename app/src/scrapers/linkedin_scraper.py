@@ -180,6 +180,9 @@ class LinkedInScraper(BaseScraper):
                 try:
                     post_data = await self._extract_post_data(post_element)
                     if post_data:
+                        if await self.post_url_exists(post_data.get("post_url")):
+                            logger.info("Encountered existing LinkedIn feed post URL; stopping scan")
+                            break
                         posts.append(post_data)
                         logger.debug(f"Extracted post {idx + 1}/{len(post_elements)}")
 
