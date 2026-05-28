@@ -92,6 +92,11 @@ class InstagramScraper(BaseScraper):
             for post_url in seen:
                 if target_limit and len(posts) >= target_limit:
                     break
+                if await self.post_url_exists(post_url):
+                    logger.info(
+                        f"Encountered existing Instagram post URL; stopping scan for {profile_url}"
+                    )
+                    break
                 post_id = post_url.split("/p/")[-1].split("/")[0]
                 if "/reel/" in post_url:
                     post_id = post_url.split("/reel/")[-1].split("/")[0]
@@ -403,6 +408,9 @@ class InstagramScraper(BaseScraper):
                 post_url = href if href.startswith("http") else f"https://www.instagram.com{href}"
                 if post_url in seen_set:
                     continue
+                if await self.post_url_exists(post_url):
+                    logger.info("Encountered existing Instagram post URL during link scan; stopping early")
+                    return seen
                 seen_set.add(post_url)
                 seen.append(post_url)
                 new_found += 1

@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Body
 from fastapi.responses import StreamingResponse
@@ -92,6 +93,25 @@ class ProgressHub:
 progress_hub = ProgressHub()
 _current_job: Optional[asyncio.Task] = None
 _run_parallel: Optional[bool] = None
+
+
+def _normalize_monitored_url(url: str) -> str:
+    value = (url or "").strip()
+    if not value:
+        return value
+
+    # Repair a few common scheme typos from manual entry.
+    if value.startswith("ttps://"):
+        value = f"h{value}"
+    elif value.startswith("tps://"):
+        value = f"ht{value}"
+    elif value.startswith("ps://"):
+        value = f"htt{value}"
+
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="Invalid monitored URL")
+    return value
 
 
 def _update_env_setting(key: str, value: str):
@@ -244,9 +264,10 @@ async def list_monitored_urls():
 @app.post("/api/monitored-urls")
 async def create_monitored_url(payload: MonitoredUrlCreate):
     platform = await db.get_or_create_platform(payload.platform, base_url="")
+    normalized_url = _normalize_monitored_url(payload.url)
     monitored = await db.create_monitored_url(
         platform_id=platform.id,
-        url=payload.url,
+        url=normalized_url,
         label=payload.label,
         is_active=payload.is_active,
     )
@@ -258,6 +279,8 @@ async def update_monitored_url(monitored_id: int, payload: MonitoredUrlUpdate):
     data = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
+    if "url" in data:
+        data["url"] = _normalize_monitored_url(data["url"])
     updated = await db.update_monitored_url(monitored_id, data)
     if not updated:
         raise HTTPException(status_code=404, detail="Not found")
@@ -459,45 +482,64 @@ async def _run_scrape_job(platform_filters: Optional[List[str]]):
             saved_total = 0
 
             for monitored in platform_urls:
-                await progress_hub.broadcast(
-                    {
-                        "type": "status",
-                        "platform": platform_name,
-                        "message": f"Scraping {monitored.url}",
-                    }
-                )
+                try:
+                    monitored_url = _normalize_monitored_url(monitored.url)
+                    if monitored_url != monitored.url:
+                        await db.update_monitored_url(monitored.id, {"url": monitored_url})
+                        monitored.url = monitored_url
 
-                processed += 1
+                    logger.info(
+                        f"Processing {platform_name} URL {processed + 1}/{total}: {monitored.url}"
+                    )
+                    await progress_hub.broadcast(
+                        {
+                            "type": "status",
+                            "platform": platform_name,
+                            "message": f"Scraping {monitored.url}",
+                        }
+                    )
 
-                if platform_name == "linkedin":
-                    posts = await scraper.scrape_company_posts(monitored.url, limit=0)
-                    saved = await scraper.save_company_posts(posts)
-                elif platform_name == "facebook":
-                    posts = await scraper.scrape_profile_posts(monitored.url, limit=5)
-                    saved = await scraper.save_company_posts(posts)
-                elif platform_name == "instagram":
-                    posts = await scraper.scrape_profile_posts(monitored.url, limit=5)
-                    saved = await scraper.save_company_posts(posts)
-                else:
-                    posts = await scraper.scrape_profile_posts(monitored.url, limit=0)
-                    saved = await scraper.save_company_posts(posts)
-                saved_total += saved
+                    if platform_name == "linkedin":
+                        posts = await scraper.scrape_company_posts(monitored.url, limit=0)
+                        saved = await scraper.save_company_posts(posts)
+                    elif platform_name == "facebook":
+                        posts = await scraper.scrape_profile_posts(monitored.url, limit=5)
+                        saved = await scraper.save_company_posts(posts)
+                    elif platform_name == "instagram":
+                        posts = await scraper.scrape_profile_posts(monitored.url, limit=5)
+                        saved = await scraper.save_company_posts(posts)
+                    else:
+                        posts = await scraper.scrape_profile_posts(monitored.url, limit=0)
+                        saved = await scraper.save_company_posts(posts)
 
-                await db.update_monitored_url(
-                    monitored.id, {"last_checked_at": datetime.utcnow()}
-                )
-
-                await progress_hub.broadcast(
-                    {
-                        "type": "progress",
-                        "platform": platform_name,
-                        "stage": "save",
-                        "current": processed,
-                        "total": total,
-                        "url": monitored.url,
-                        "percent": int((processed / total) * 100),
-                    }
-                )
+                    saved_total += saved
+                    await db.update_monitored_url(
+                        monitored.id, {"last_checked_at": datetime.utcnow()}
+                    )
+                except Exception as monitored_exc:
+                    logger.error(
+                        f"Failed processing {platform_name} URL {monitored.url}: {monitored_exc}"
+                    )
+                    await progress_hub.broadcast(
+                        {
+                            "type": "error",
+                            "platform": platform_name,
+                            "message": f"{monitored.url}: {monitored_exc}",
+                        }
+                    )
+                finally:
+                    processed += 1
+                    await progress_hub.broadcast(
+                        {
+                            "type": "progress",
+                            "platform": platform_name,
+                            "stage": "save",
+                            "current": processed,
+                            "total": total,
+                            "url": monitored.url,
+                            "percent": int((processed / total) * 100),
+                        }
+                    )
 
             await progress_hub.broadcast(
                 {

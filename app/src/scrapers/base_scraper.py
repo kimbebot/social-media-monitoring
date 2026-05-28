@@ -200,6 +200,12 @@ class BaseScraper(ABC):
 
         return new_count
 
+    async def post_url_exists(self, post_url: Optional[str]) -> bool:
+        """Check whether a post URL has already been stored for this platform."""
+        if not post_url or not self.platform:
+            return False
+        return await db.post_url_exists(self.platform.id, post_url)
+
     async def run(self, username: str, password: str) -> Dict:
         """Main execution flow"""
         start_time = datetime.utcnow()

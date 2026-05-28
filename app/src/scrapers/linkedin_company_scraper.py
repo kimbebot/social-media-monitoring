@@ -268,6 +268,11 @@ class LinkedInCompanyScraper(BaseScraper):
             # Detect direct post URL and handle separately
             if self._is_post_url(self.page.url):
                 logger.info("Detected direct post URL, extracting single post...")
+                if await self.post_url_exists(self.page.url):
+                    logger.info(
+                        f"Encountered existing LinkedIn post URL; stopping scan for {company_url}"
+                    )
+                    return []
                 post_elements = await self._find_post_elements()
                 if post_elements:
                     company_name = await self._extract_company_name()
@@ -383,6 +388,14 @@ class LinkedInCompanyScraper(BaseScraper):
                     post_id = await self._extract_post_id_quick(post_element)
                     if post_id and post_id in seen_ids:
                         continue
+                    post_url = (
+                        f"https://www.linkedin.com/feed/update/{post_id}" if post_id else None
+                    )
+                    if await self.post_url_exists(post_url):
+                        logger.info(
+                            f"Encountered existing LinkedIn post URL; stopping scan for {company_url}"
+                        )
+                        break
                     if post_id:
                         seen_ids.add(post_id)
                     post_data = await self._extract_company_post_data(

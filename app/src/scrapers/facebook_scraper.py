@@ -258,6 +258,12 @@ class FacebookScraper(BaseScraper):
                 if target_limit and len(collected) >= target_limit:
                     break
                 post_container = posts.nth(idx)
+                post_url = await self._extract_post_url_from_container(post_container)
+                if post_url and await self.post_url_exists(post_url):
+                    logger.info(
+                        f"Encountered existing Facebook post URL; stopping scan for {profile_url}"
+                    )
+                    return collected
                 post = await self._extract_post_from_container(post_container, profile_url)
                 if not post:
                     continue
@@ -279,6 +285,33 @@ class FacebookScraper(BaseScraper):
             logger.warning(f"Only found {len(collected)} posts (target={target_limit})")
 
         return collected
+
+    async def _extract_post_url_from_container(self, container) -> Optional[str]:
+        try:
+            post_url = await container.evaluate(
+                """
+                (el) => {
+                  const selectors = [
+                    'a[href*="/posts/"]',
+                    'a[href*="permalink.php"]',
+                    'a[href*="story_fbid="]',
+                    'a[href*="fbid="]',
+                    'a[href*="/photo/"]',
+                    'a[href*="/photos/"]',
+                  ];
+                  for (const sel of selectors) {
+                    const link = el.querySelector(sel);
+                    if (link && link.getAttribute("href")) {
+                      return link.getAttribute("href");
+                    }
+                  }
+                  return "";
+                }
+                """
+            )
+        except Exception:
+            return None
+        return self._normalize_url(post_url) if post_url else None
 
     async def _extract_post_from_container(self, container, profile_url: str) -> Optional[Dict]:
         try:
@@ -310,28 +343,7 @@ class FacebookScraper(BaseScraper):
                 """
             )
 
-            post_url = await container.evaluate(
-                """
-                (el) => {
-                  const selectors = [
-                    'a[href*="/posts/"]',
-                    'a[href*="permalink.php"]',
-                    'a[href*="story_fbid="]',
-                    'a[href*="fbid="]',
-                    'a[href*="/photo/"]',
-                    'a[href*="/photos/"]',
-                  ];
-                  for (const sel of selectors) {
-                    const link = el.querySelector(sel);
-                    if (link && link.getAttribute("href")) {
-                      return link.getAttribute("href");
-                    }
-                  }
-                  return "";
-                }
-                """
-            )
-            post_url = self._normalize_url(post_url) if post_url else None
+            post_url = await self._extract_post_url_from_container(container)
 
             author_name = await container.evaluate(
                 """
