@@ -289,6 +289,19 @@ class DatabaseManager:
             await session.commit()
         return new_count
 
+    async def post_url_exists(self, platform_id: int, post_url: str) -> bool:
+        """Check whether a post URL already exists for a platform."""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(Post.id).where(
+                    and_(
+                        Post.platform_id == platform_id,
+                        Post.post_url == post_url,
+                    )
+                ).limit(1)
+            )
+            return result.scalar_one_or_none() is not None
+
     # Monitored URL operations
     async def create_monitored_url(
         self,
