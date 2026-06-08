@@ -150,6 +150,35 @@ form {
   margin-bottom: 12px;
 }
 
+.upload-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(27, 122, 107, 0.05);
+}
+
+.upload-copy h4 {
+  margin: 0 0 4px;
+}
+
+.upload-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.upload-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 label {
   display: flex;
   flex-direction: column;
@@ -362,7 +391,10 @@ body.dark .progress-block {
   padding: 20px;
   width: 100%;
   max-width: 640px;
+  max-height: calc(100vh - 40px);
   box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-content.large {
@@ -380,6 +412,9 @@ body.dark .progress-block {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
 }
 
 .setting-row {
@@ -506,6 +541,14 @@ body.dark .platform-row {
 
   form {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .upload-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .upload-actions {
+    justify-content: stretch;
   }
 
   .panel-header {

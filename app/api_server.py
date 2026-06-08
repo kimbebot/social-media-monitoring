@@ -2,6 +2,7 @@
 FastAPI server for managing monitored URLs and running scrapes.
 """
 import asyncio
+import csv
 import io
 import json
 from datetime import datetime
@@ -9,9 +10,9 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Body
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Body, UploadFile, File
 from fastapi.responses import StreamingResponse
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -131,6 +132,53 @@ def _update_env_setting(key: str, value: str):
     if not updated:
         new_lines.append(f"{key}={value}")
     env_path.write_text("\n".join(new_lines) + "\n")
+
+
+def _normalize_import_headers(headers: List[str]) -> List[str]:
+    return [str(header or "").strip().lower() for header in headers]
+
+
+def _parse_monitored_url_upload(filename: str, content: bytes) -> List[dict]:
+    suffix = Path(filename or "").suffix.lower()
+    rows: List[dict] = []
+
+    if suffix == ".csv":
+        reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig")))
+        if reader.fieldnames is None:
+            raise HTTPException(status_code=400, detail="CSV file has no headers")
+        headers = _normalize_import_headers(reader.fieldnames)
+        expected = {"label", "linkedin", "facebook", "instagram", "x"}
+        if not expected.issubset(set(headers)):
+            raise HTTPException(
+                status_code=400,
+                detail="Upload file must contain: label, linkedin, facebook, instagram, x",
+            )
+        for raw_row in reader:
+            row = {str(k or "").strip().lower(): str(v or "").strip() for k, v in raw_row.items()}
+            rows.append(row)
+        return rows
+
+    if suffix in {".xlsx", ".xlsm"}:
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        sheet = workbook.active
+        raw_headers = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), None)
+        if raw_headers is None:
+            raise HTTPException(status_code=400, detail="Excel file has no headers")
+        headers = _normalize_import_headers(list(raw_headers))
+        expected = {"label", "linkedin", "facebook", "instagram", "x"}
+        if not expected.issubset(set(headers)):
+            raise HTTPException(
+                status_code=400,
+                detail="Upload file must contain: label, linkedin, facebook, instagram, x",
+            )
+        for values in sheet.iter_rows(min_row=2, values_only=True):
+            row = {}
+            for idx, header in enumerate(headers):
+                row[header] = str(values[idx] or "").strip() if idx < len(values) else ""
+            rows.append(row)
+        return rows
+
+    raise HTTPException(status_code=400, detail="Only .csv and .xlsx files are supported")
 
 
 @app.on_event("startup")
@@ -265,6 +313,8 @@ async def list_monitored_urls():
 async def create_monitored_url(payload: MonitoredUrlCreate):
     platform = await db.get_or_create_platform(payload.platform, base_url="")
     normalized_url = _normalize_monitored_url(payload.url)
+    if await db.monitored_url_exists(normalized_url):
+        raise HTTPException(status_code=409, detail="Duplicate monitored URL")
     monitored = await db.create_monitored_url(
         platform_id=platform.id,
         url=normalized_url,
@@ -281,10 +331,59 @@ async def update_monitored_url(monitored_id: int, payload: MonitoredUrlUpdate):
         raise HTTPException(status_code=400, detail="No fields to update")
     if "url" in data:
         data["url"] = _normalize_monitored_url(data["url"])
+        if await db.monitored_url_exists(data["url"], exclude_id=monitored_id):
+            raise HTTPException(status_code=409, detail="Duplicate monitored URL")
     updated = await db.update_monitored_url(monitored_id, data)
     if not updated:
         raise HTTPException(status_code=404, detail="Not found")
     return {"status": "ok"}
+
+
+@app.post("/api/monitored-urls/upload")
+async def upload_monitored_urls(file: UploadFile = File(...)):
+    content = await file.read()
+    rows = _parse_monitored_url_upload(file.filename or "", content)
+
+    created = 0
+    duplicates = 0
+    blanks = 0
+    seen_urls = set()
+    platform_cache = {}
+
+    for row in rows:
+        label = row.get("label") or None
+        for platform_name in ("linkedin", "facebook", "instagram", "x"):
+            raw_url = (row.get(platform_name) or "").strip()
+            if not raw_url:
+                blanks += 1
+                continue
+
+            normalized_url = _normalize_monitored_url(raw_url)
+            if normalized_url in seen_urls or await db.monitored_url_exists(normalized_url):
+                duplicates += 1
+                continue
+
+            platform = platform_cache.get(platform_name)
+            if not platform:
+                platform = await db.get_or_create_platform(platform_name, base_url="")
+                platform_cache[platform_name] = platform
+
+            await db.create_monitored_url(
+                platform_id=platform.id,
+                url=normalized_url,
+                label=label,
+                is_active=True,
+            )
+            seen_urls.add(normalized_url)
+            created += 1
+
+    return {
+        "status": "ok",
+        "created": created,
+        "duplicates": duplicates,
+        "blank_urls": blanks,
+        "rows": len(rows),
+    }
 
 
 @app.delete("/api/monitored-urls/{monitored_id}")

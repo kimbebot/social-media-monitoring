@@ -37,6 +37,7 @@ loguru==0.7.3
 fastapi==0.115.5
 uvicorn==0.30.6
 openpyxl==3.1.5
+python-multipart==0.0.20
 
 # Proxies (optional)
 # aiohttp-socks==0.9.0

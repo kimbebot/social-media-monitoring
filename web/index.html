@@ -227,6 +227,21 @@
             </label>
             <button type="submit">Add URL</button>
           </form>
+          <div class="upload-panel">
+            <div class="upload-copy">
+              <h4>Bulk Upload</h4>
+              <p>Upload `.csv` or `.xlsx` with columns: `label`, `linkedin`, `facebook`, `instagram`, `x`.</p>
+            </div>
+            <div class="upload-actions">
+              <input
+                id="urlUploadInput"
+                type="file"
+                accept=".csv,.xlsx,.xlsm"
+                class="hidden"
+              />
+              <button id="uploadUrlsBtn" type="button" class="secondary">Upload File</button>
+            </div>
+          </div>
           <table>
             <thead>
               <tr>

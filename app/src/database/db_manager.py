@@ -323,6 +323,17 @@ class DatabaseManager:
             await session.refresh(monitored)
             return monitored
 
+    async def monitored_url_exists(
+        self, url: str, exclude_id: Optional[int] = None
+    ) -> bool:
+        """Check whether a monitored URL already exists."""
+        async with self.get_session() as session:
+            query = select(MonitoredUrl.id).where(MonitoredUrl.url == url)
+            if exclude_id is not None:
+                query = query.where(MonitoredUrl.id != exclude_id)
+            result = await session.execute(query.limit(1))
+            return result.scalar_one_or_none() is not None
+
     async def list_monitored_urls(self) -> List[MonitoredUrl]:
         """List all monitored URLs"""
         async with self.get_session() as session:

@@ -19,6 +19,8 @@ const pageInfo = document.getElementById("pageInfo");
 const urlsPrevPage = document.getElementById("urlsPrevPage");
 const urlsNextPage = document.getElementById("urlsNextPage");
 const urlsPageInfo = document.getElementById("urlsPageInfo");
+const urlUploadInput = document.getElementById("urlUploadInput");
+const uploadUrlsBtn = document.getElementById("uploadUrlsBtn");
 
 const settingsBtn = document.getElementById("settingsBtn");
 const settingsModal = document.getElementById("settingsModal");
@@ -225,8 +227,41 @@ addForm.addEventListener("submit", async (e) => {
     await loadUrls();
     showToast("URL added", "success");
   } else {
-    showToast("Failed to add URL", "error");
+    const data = await res.json().catch(() => ({}));
+    showToast(data.detail || "Failed to add URL", "error");
   }
+});
+
+uploadUrlsBtn.addEventListener("click", () => {
+  urlUploadInput.click();
+});
+
+urlUploadInput.addEventListener("change", async () => {
+  const [file] = urlUploadInput.files || [];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch("/api/monitored-urls/upload", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    showToast(data.detail || "Failed to upload file", "error");
+    urlUploadInput.value = "";
+    return;
+  }
+
+  const data = await res.json();
+  await loadUrls();
+  showToast(
+    `Uploaded ${data.created} URLs (${data.duplicates} duplicates skipped, ${data.blank_urls} blanks skipped)`,
+    "success"
+  );
+  urlUploadInput.value = "";
 });
 
 accountForm.addEventListener("submit", async (e) => {
@@ -265,11 +300,16 @@ urlTableBody.addEventListener("click", async (e) => {
     const newLabel = window.prompt("Edit Label", current.label || "");
     if (newLabel === null) return;
 
-    await fetch(`/api/monitored-urls/${id}`, {
+    const data = await fetch(`/api/monitored-urls/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: newUrl, label: newLabel }),
     });
+    if (!data.ok) {
+      const error = await data.json().catch(() => ({}));
+      showToast(error.detail || "Failed to update URL", "error");
+      return;
+    }
     await loadUrls();
     showToast("URL updated", "success");
   }
